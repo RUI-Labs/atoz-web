@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "4RKXM42395.com.zodlr.mainnet",
+        "paths": ["/claim", "/claim/*"]
+      }
+    ]
+  }
+}
