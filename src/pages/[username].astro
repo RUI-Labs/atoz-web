@@ -1,0 +1,115 @@
+---
+import { getDb } from '../lib/db';
+import PayChains from '../components/PayChains.vue';
+
+const { username } = Astro.params;
+const sql = getDb();
+const rows = await sql`SELECT username, zcash_address FROM users WHERE LOWER(username) = LOWER(${username}) LIMIT 1`;
+
+if (rows.length === 0) {
+  return new Response('Not found', { status: 404 });
+}
+
+const user = rows[0];
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet" />
+    <title>Pay {user.username} — AtoZ.cash</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      body {
+        background: #fff;
+        color: #000;
+        font-family: "Varela Round", sans-serif;
+        min-height: 100dvh;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        flex: 1;
+        width: 100%;
+        max-width: 480px;
+        margin: 0 auto;
+        padding: 3.5rem 1.5rem 2rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+
+      .header {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+      }
+
+      .send-label {
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        opacity: 0.3;
+      }
+
+      .username-display {
+        font-size: 2.2rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1.15;
+        word-break: break-all;
+      }
+
+      .footer {
+        margin-top: auto;
+        padding-top: 1rem;
+      }
+
+      .footer-cta {
+        display: block;
+        width: 100%;
+        padding: 0.85rem;
+        border-radius: 4px;
+        border: 2px solid #000;
+        background: #fff;
+        color: #000;
+        font-family: "Varela Round", sans-serif;
+        font-size: 0.88rem;
+        text-align: center;
+        text-decoration: none;
+        transition: background 0.12s, color 0.12s;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .footer-cta:hover { background: #000; color: #fff; }
+
+      @media (min-width: 640px) {
+        .page { padding: 5rem 2rem 3rem; }
+        .username-display { font-size: 2.8rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="header">
+        <span class="send-label">Send to</span>
+        <h1 class="username-display">{user.username}</h1>
+      </div>
+
+      <PayChains client:only="vue" address={user.zcash_address} />
+
+      <div class="footer">
+        <a href="/" class="footer-cta">Get your own link &rarr;</a>
+      </div>
+    </div>
+  </body>
+</html>

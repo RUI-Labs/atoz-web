@@ -1,17 +1,50 @@
 ---
-
+import SignupForm from '../components/SignupForm.vue';
 ---
 
 <html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet" />
+    <title>AtoZ.cash</title>
+    <meta name="description" content="Get a personal Zcash payment link." />
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      body {
+        background: #fff;
+        color: #000;
+        font-family: "Varela Round", sans-serif;
+        min-height: 100dvh;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        flex: 1;
+        width: 100%;
+        max-width: 480px;
+        margin: 0 auto;
+        padding: 3.5rem 1.5rem 2rem;
+        display: flex;
+        flex-direction: column;
+      }
+
+      @media (min-width: 640px) {
+        .page { padding: 5rem 2rem 3rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page" role="main">
+      <SignupForm client:only="vue" />
+    </main>
+  </body>
 </html>
