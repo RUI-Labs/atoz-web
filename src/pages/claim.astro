@@ -1,0 +1,92 @@
+---
+
+---
+
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="icon" href="/favicon.ico" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Claim ZEC — Zodl</title>
+		<style>
+			* { margin: 0; padding: 0; box-sizing: border-box; }
+			body {
+				background: #000;
+				color: #fff;
+				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+				min-height: 100vh;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				text-align: center;
+				padding: 2rem;
+			}
+			.container { max-width: 400px; }
+			.amount {
+				font-size: 3rem;
+				font-weight: 700;
+				margin: 1.5rem 0 0.5rem;
+				font-variant-numeric: tabular-nums;
+			}
+			.currency {
+				font-size: 1.2rem;
+				opacity: 0.5;
+				margin-bottom: 2rem;
+			}
+			.memo {
+				font-size: 1rem;
+				opacity: 0.6;
+				margin-bottom: 2rem;
+				font-style: italic;
+			}
+			.prompt {
+				font-size: 1.1rem;
+				opacity: 0.8;
+				margin-bottom: 1.5rem;
+			}
+			.download {
+				display: inline-block;
+				background: #fff;
+				color: #000;
+				text-decoration: none;
+				padding: 0.8rem 2rem;
+				border-radius: 12px;
+				font-size: 1rem;
+				font-weight: 600;
+				transition: opacity 0.2s;
+			}
+			.download:hover { opacity: 0.85; }
+			.hidden { display: none; }
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<div class="memo hidden" id="memo"></div>
+			<div class="amount hidden" id="amount"></div>
+			<div class="currency hidden" id="currency">ZEC</div>
+			<p class="prompt">Download Zodl to receive your ZEC</p>
+			<a class="download" href="https://apps.apple.com/us/app/zodl-zcash-wallet/id1672392439">
+				Download Zodl
+			</a>
+		</div>
+
+		<script>
+			try {
+				const hash = window.location.hash.slice(1);
+				if (hash) {
+					const json = JSON.parse(atob(hash));
+					if (json.a) {
+						document.getElementById('amount').textContent = json.a;
+						document.getElementById('amount').classList.remove('hidden');
+						document.getElementById('currency').classList.remove('hidden');
+					}
+					if (json.m) {
+						document.getElementById('memo').textContent = `"${json.m}"`;
+						document.getElementById('memo').classList.remove('hidden');
+					}
+				}
+			} catch (e) {}
+		</script>
+	</body>
+</html>
