@@ -32,3 +32,5 @@ pnpm dev
 ## Deployment
 
 Deployed to Cloudflare Pages from this repo. The `public/_headers` file ensures the AASA is served with `Content-Type: application/json`.
+
+:)
