@@ -4,7 +4,7 @@ import { getDb } from '../../lib/db';
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,40}$/;
 const ZCASH_RE = /^(u1|zs1)/;
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, locals }) => {
   const body = await request.json().catch(() => null);
   if (!body) {
     return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
@@ -24,7 +24,7 @@ export const POST: APIRoute = async ({ request }) => {
     });
   }
 
-  const sql = getDb();
+  const sql = getDb((locals as any).runtime);
   try {
     await sql`INSERT INTO users (username, zcash_address) VALUES (${username}, ${zcash_address})`;
   } catch (e: any) {
