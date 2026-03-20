@@ -1,0 +1,9 @@
+{
+  "name": "atoz-web",
+  "routes": [
+    {
+      "pattern": "atoz.cash",
+      "custom_domain": true
+    }
+  ]
+}

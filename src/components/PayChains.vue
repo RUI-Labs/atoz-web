@@ -99,7 +99,7 @@
           <label class="field-label">Token</label>
           <select v-model="selectedTokenId" class="field-select" :disabled="tokensLoading">
             <option value="" disabled>{{ tokensLoading ? 'Loading...' : 'Select token' }}</option>
-            <option v-for="t in chainTokens" :key="t.assetId" :value="t.assetId">
+            <option v-for="t in visibleTokens" :key="t.assetId" :value="t.assetId">
               {{ t.symbol }}{{ t.price > 0 ? ` ($${t.price.toFixed(2)})` : '' }}
             </option>
           </select>
@@ -135,7 +135,7 @@
         <button
           class="action-btn"
           :disabled="!canGetQuote || quoteLoading"
-          @click="getSwapQuote"
+          @click="requestQuote"
           type="button"
         >
           <span v-if="!quoteLoading">Get Deposit Address</span>
@@ -151,15 +151,15 @@
         <div class="summary">
           <div class="summary-row">
             <span class="summary-label">Send</span>
-            <span class="summary-value">{{ currentQuote?.amountInFormatted }} {{ selectedTokenObj?.symbol }}</span>
+            <span class="summary-value">{{ currentQuote?.amountInFormatted }} {{ selectedTokenObj?.symbol }} (~${{ currentQuote?.amountInUsd }})</span>
           </div>
           <div class="summary-row">
             <span class="summary-label">Receive</span>
-            <span class="summary-value">~{{ currentQuote?.amountOutFormatted }} ZEC</span>
+            <span class="summary-value">~{{ currentQuote?.amountOutFormatted }} ZEC (~${{ currentQuote?.amountOutUsd }})</span>
           </div>
           <div class="summary-row">
             <span class="summary-label">Est.</span>
-            <span class="summary-value">~{{ Math.round((currentQuote?.timeEstimate || 0) / 60) }} min</span>
+            <span class="summary-value">~{{ currentQuote?.timeEstimate }}s</span>
           </div>
         </div>
 
@@ -179,10 +179,16 @@
           </span>
         </button>
         <div class="deposit-meta">
-          <span class="deposit-deadline">Expires {{ formatTime(currentQuote?.deadline) }}</span>
+          <span class="deposit-deadline">Deadline: {{ formatTime(currentQuote?.deadline) }}</span>
         </div>
 
-        <button class="action-btn" @click="confirmPaid" type="button">I've Paid</button>
+        <a
+          :href="`https://explorer.near-intents.org/transactions/${depositAddr}`"
+          target="_blank"
+          class="explorer-link"
+        >View on Explorer &rarr;</a>
+
+        <button class="action-btn" @click="confirmPaid" type="button">I Have Paid</button>
         <button class="cancel-btn" @click="resetSwap" type="button">Cancel</button>
       </div>
     </Transition>
@@ -203,10 +209,33 @@
             <span class="summary-label">Received</span>
             <span class="summary-value">{{ swapDetails.amountOutFormatted }} ZEC (~${{ swapDetails.amountOutUsd }})</span>
           </div>
+          <div v-if="swapDetails?.slippage != null" class="summary-row">
+            <span class="summary-label">Slippage</span>
+            <span class="summary-value">{{ swapDetails.slippage }} bps</span>
+          </div>
+          <div v-if="swapDetails?.depositedAmountFormatted" class="summary-row">
+            <span class="summary-label">Deposited</span>
+            <span class="summary-value">{{ swapDetails.depositedAmountFormatted }} (~${{ swapDetails.depositedAmountUsd }})</span>
+          </div>
           <div v-if="swapDetails?.refundedAmountFormatted" class="summary-row">
             <span class="summary-label">Refunded</span>
             <span class="summary-value">{{ swapDetails.refundedAmountFormatted }} (~${{ swapDetails.refundedAmountUsd }})</span>
           </div>
+          <div v-if="swapDetails?.refundReason" class="summary-row">
+            <span class="summary-label">Reason</span>
+            <span class="summary-value">{{ swapDetails.refundReason }}</span>
+          </div>
+        </div>
+
+        <div v-if="swapDetails?.originChainTxHashes?.length" class="tx-section">
+          <div class="tx-label">Origin Chain Txs</div>
+          <a v-for="tx in swapDetails.originChainTxHashes" :key="tx.hash"
+            :href="tx.explorerUrl || '#'" target="_blank" class="tx-hash">{{ tx.hash }}</a>
+        </div>
+        <div v-if="swapDetails?.destinationChainTxHashes?.length" class="tx-section">
+          <div class="tx-label">Destination Chain Txs</div>
+          <a v-for="tx in swapDetails.destinationChainTxHashes" :key="tx.hash"
+            :href="tx.explorerUrl || '#'" target="_blank" class="tx-hash">{{ tx.hash }}</a>
         </div>
 
         <a
@@ -229,37 +258,51 @@ import Snd from 'snd-lib';
 import QRCode from 'qrcode';
 import * as Web3Icons from '@web3icons/core';
 
+// --- atozcash implementation ---
+import {
+  client,
+  SUPPORTED_CHAINS,
+  getTokens,
+  findAsset,
+  toSmallestUnit,
+  getQuote,
+  getStatus,
+  TokenResponseEnums,
+} from '../lib/crosspay';
+
+// Initialize the Defuse API client (from atozcash client.ts)
+client.init();
+
 const props = defineProps({ address: String });
 
 const snd = new Snd();
 snd.load(Snd.KITS.SND02);
 
-const API = 'https://1click.chaindefuser.com';
-
+// Map our UI chain IDs → atozcash SUPPORTED_CHAINS keys
 const CHAINS = [
-  { id: 'zcash',  name: 'Zcash',            symbol: 'ZEC',   key: 'TokenBrandedZEC',   available: true,  popular: true,  defuseChain: null },
-  { id: 'eth',    name: 'Ethereum',          symbol: 'ETH',   key: 'TokenBrandedETH',   available: true,  popular: true,  defuseChain: 'eth' },
-  { id: 'base',   name: 'Base',              symbol: 'BASE',  key: 'NetworkBrandedBase', available: true,  popular: true,  defuseChain: 'base' },
-  { id: 'arb',    name: 'Arbitrum',          symbol: 'ARB',   key: 'TokenBrandedARB',    available: true,  popular: true,  defuseChain: 'arb' },
-  { id: 'btc',    name: 'Bitcoin',           symbol: 'BTC',   key: 'TokenBrandedBTC',    available: false, popular: true,  defuseChain: null },
-  { id: 'sol',    name: 'Solana',            symbol: 'SOL',   key: 'TokenBrandedSOL',    available: false, popular: true,  defuseChain: null },
-  { id: 'usdt',   name: 'Tether',            symbol: 'USDT',  key: 'TokenBrandedUSDT',   available: false, popular: true,  defuseChain: null },
-  { id: 'bnb',    name: 'BNB',               symbol: 'BNB',   key: 'TokenBrandedBNB',    available: true,  popular: false, defuseChain: 'bsc' },
-  { id: 'xrp',    name: 'XRP',               symbol: 'XRP',   key: 'TokenBrandedXRP',    available: false, popular: false, defuseChain: null },
-  { id: 'ada',    name: 'Cardano',           symbol: 'ADA',   key: 'TokenBrandedADA',    available: false, popular: false, defuseChain: null },
-  { id: 'doge',   name: 'Dogecoin',          symbol: 'DOGE',  key: 'TokenBrandedDOGE',   available: false, popular: false, defuseChain: null },
-  { id: 'dot',    name: 'Polkadot',          symbol: 'DOT',   key: 'TokenBrandedDOT',    available: false, popular: false, defuseChain: null },
-  { id: 'matic',  name: 'Polygon',           symbol: 'MATIC', key: 'TokenBrandedMATIC',  available: true,  popular: false, defuseChain: 'pol' },
-  { id: 'avax',   name: 'Avalanche',         symbol: 'AVAX',  key: 'TokenBrandedAVAX',   available: true,  popular: false, defuseChain: 'avax' },
-  { id: 'op',     name: 'Optimism',          symbol: 'OP',    key: 'TokenBrandedOP',     available: true,  popular: false, defuseChain: 'op' },
-  { id: 'ltc',    name: 'Litecoin',          symbol: 'LTC',   key: 'TokenBrandedLTC',    available: false, popular: false, defuseChain: null },
-  { id: 'near',   name: 'NEAR',              symbol: 'NEAR',  key: 'TokenBrandedNEAR',   available: false, popular: false, defuseChain: null },
-  { id: 'xmr',    name: 'Monero',            symbol: 'XMR',   key: 'TokenBrandedXMR',    available: false, popular: false, defuseChain: null },
-  { id: 'xlm',    name: 'Stellar',           symbol: 'XLM',   key: 'TokenBrandedXLM',    available: false, popular: false, defuseChain: null },
-  { id: 'link',   name: 'Chainlink',         symbol: 'LINK',  key: 'TokenBrandedLINK',   available: false, popular: false, defuseChain: null },
-  { id: 'atom',   name: 'Cosmos',            symbol: 'ATOM',  key: 'TokenBrandedATOM',   available: false, popular: false, defuseChain: null },
-  { id: 'trx',    name: 'TRON',              symbol: 'TRX',   key: 'TokenBrandedTRX',    available: false, popular: false, defuseChain: null },
-  { id: 'etc',    name: 'Ethereum Classic',   symbol: 'ETC',   key: 'TokenBrandedETC',    available: false, popular: false, defuseChain: null },
+  { id: 'zcash',  name: 'Zcash',             symbol: 'ZEC',   key: 'TokenBrandedZEC',    available: true,  popular: true,  chainKey: null },
+  { id: 'eth',    name: 'Ethereum',           symbol: 'ETH',   key: 'TokenBrandedETH',    available: true,  popular: true,  chainKey: 'eth' },
+  { id: 'base',   name: 'Base',               symbol: 'BASE',  key: 'NetworkBrandedBase',  available: true,  popular: true,  chainKey: 'base' },
+  { id: 'arb',    name: 'Arbitrum',           symbol: 'ARB',   key: 'TokenBrandedARB',    available: true,  popular: true,  chainKey: 'arb' },
+  { id: 'btc',    name: 'Bitcoin',            symbol: 'BTC',   key: 'TokenBrandedBTC',    available: false, popular: true,  chainKey: null },
+  { id: 'sol',    name: 'Solana',             symbol: 'SOL',   key: 'TokenBrandedSOL',    available: false, popular: true,  chainKey: null },
+  { id: 'usdt',   name: 'Tether',             symbol: 'USDT',  key: 'TokenBrandedUSDT',   available: false, popular: true,  chainKey: null },
+  { id: 'bnb',    name: 'BNB',                symbol: 'BNB',   key: 'TokenBrandedBNB',    available: true,  popular: false, chainKey: 'bsc' },
+  { id: 'xrp',    name: 'XRP',                symbol: 'XRP',   key: 'TokenBrandedXRP',    available: false, popular: false, chainKey: null },
+  { id: 'ada',    name: 'Cardano',            symbol: 'ADA',   key: 'TokenBrandedADA',    available: false, popular: false, chainKey: null },
+  { id: 'doge',   name: 'Dogecoin',           symbol: 'DOGE',  key: 'TokenBrandedDOGE',   available: false, popular: false, chainKey: null },
+  { id: 'dot',    name: 'Polkadot',           symbol: 'DOT',   key: 'TokenBrandedDOT',    available: false, popular: false, chainKey: null },
+  { id: 'matic',  name: 'Polygon',            symbol: 'MATIC', key: 'TokenBrandedMATIC',  available: true,  popular: false, chainKey: 'pol' },
+  { id: 'avax',   name: 'Avalanche',          symbol: 'AVAX',  key: 'TokenBrandedAVAX',   available: true,  popular: false, chainKey: 'avax' },
+  { id: 'op',     name: 'Optimism',           symbol: 'OP',    key: 'TokenBrandedOP',     available: true,  popular: false, chainKey: 'op' },
+  { id: 'ltc',    name: 'Litecoin',           symbol: 'LTC',   key: 'TokenBrandedLTC',    available: false, popular: false, chainKey: null },
+  { id: 'near',   name: 'NEAR',               symbol: 'NEAR',  key: 'TokenBrandedNEAR',   available: false, popular: false, chainKey: null },
+  { id: 'xmr',    name: 'Monero',             symbol: 'XMR',   key: 'TokenBrandedXMR',    available: false, popular: false, chainKey: null },
+  { id: 'xlm',    name: 'Stellar',            symbol: 'XLM',   key: 'TokenBrandedXLM',    available: false, popular: false, chainKey: null },
+  { id: 'link',   name: 'Chainlink',          symbol: 'LINK',  key: 'TokenBrandedLINK',   available: false, popular: false, chainKey: null },
+  { id: 'atom',   name: 'Cosmos',             symbol: 'ATOM',  key: 'TokenBrandedATOM',   available: false, popular: false, chainKey: null },
+  { id: 'trx',    name: 'TRON',               symbol: 'TRX',   key: 'TokenBrandedTRX',    available: false, popular: false, chainKey: null },
+  { id: 'etc',    name: 'Ethereum Classic',    symbol: 'ETC',   key: 'TokenBrandedETC',    available: false, popular: false, chainKey: null },
 ];
 
 const icons = {};
@@ -276,11 +319,10 @@ const copied = ref(false);
 const rootRef = ref(null);
 const searchRef = ref(null);
 const qrCanvas = ref(null);
-const amountRef = ref(null);
 
-// --- Swap state ---
+// --- Swap state (mirrors atozcash web UI state) ---
 const allTokens = ref([]);
-const chainTokens = ref([]);
+const visibleTokens = ref([]);
 const selectedTokenId = ref('');
 const swapAmount = ref('');
 const refundAddress = ref('');
@@ -303,7 +345,7 @@ const filtered = computed(() => {
 });
 
 const selectedTokenObj = computed(() =>
-  chainTokens.value.find(t => t.assetId === selectedTokenId.value)
+  allTokens.value.find(t => t.assetId === selectedTokenId.value)
 );
 
 const canGetQuote = computed(() => {
@@ -311,6 +353,7 @@ const canGetQuote = computed(() => {
   return selectedTokenId.value && swapAmount.value && !isNaN(amt) && amt > 0;
 });
 
+// Status labels/descriptions from atozcash web UI
 const STATUS_LABELS = {
   PENDING_DEPOSIT: 'Waiting for deposit',
   KNOWN_DEPOSIT_TX: 'Deposit detected',
@@ -337,6 +380,7 @@ const statusHasDetails = computed(() =>
   swapDetails.value && (swapDetails.value.amountInFormatted || swapDetails.value.amountOutFormatted || swapDetails.value.refundedAmountFormatted)
 );
 
+// Status icon rendering from atozcash web UI
 const statusIconHtml = computed(() => {
   const s = swapStatusVal.value;
   if (s === 'SUCCESS') {
@@ -354,7 +398,7 @@ function pick(c) {
   snd.play(Snd.SOUNDS.TAP);
   selected.value = c;
 
-  if (c.defuseChain) {
+  if (c.chainKey) {
     view.value = 'swap-form';
     loadChainTokens();
   } else {
@@ -370,7 +414,7 @@ function backToPicker() {
   swapAmount.value = '';
   refundAddress.value = '';
   swapError.value = '';
-  chainTokens.value = [];
+  visibleTokens.value = [];
   view.value = 'picker';
   query.value = '';
   nextTick(() => {
@@ -411,23 +455,20 @@ async function copyText(text) {
   } catch {}
 }
 
-// --- Swap: load tokens ---
-async function fetchAllTokens() {
-  if (allTokens.value.length) return;
-  const res = await fetch(`${API}/v0/tokens`);
-  if (!res.ok) throw new Error('Failed to load tokens');
-  allTokens.value = await res.json();
-}
-
+// --- Swap: load tokens using atozcash getTokens() ---
 async function loadChainTokens() {
   tokensLoading.value = true;
   swapError.value = '';
   try {
-    await fetchAllTokens();
-    chainTokens.value = allTokens.value
-      .filter(t => t.blockchain === selected.value.defuseChain)
+    // Use atozcash getTokens() which calls OneClickService.getTokens()
+    const tokens = await getTokens();
+    allTokens.value = tokens;
+
+    // Filter by selected chain's blockchain (using atozcash SUPPORTED_CHAINS mapping)
+    const blockchain = SUPPORTED_CHAINS[selected.value.chainKey];
+    visibleTokens.value = tokens
+      .filter(t => t.blockchain === blockchain)
       .sort((a, b) => {
-        // prioritize stablecoins and major tokens
         const order = ['USDC', 'USDT', 'ETH', 'WETH', 'DAI'];
         const ai = order.indexOf(a.symbol);
         const bi = order.indexOf(b.symbol);
@@ -442,49 +483,35 @@ async function loadChainTokens() {
   tokensLoading.value = false;
 }
 
-// --- Swap: get quote ---
-async function getSwapQuote() {
+// --- Swap: get quote using atozcash getQuote() ---
+async function requestQuote() {
   swapError.value = '';
   quoteLoading.value = true;
   snd.play(Snd.SOUNDS.TAP);
 
   try {
-    await fetchAllTokens();
     const token = selectedTokenObj.value;
-    const zec = allTokens.value.find(t => t.blockchain === 'zec');
-    if (!token || !zec) throw new Error('Token not found');
+    // Find ZEC asset using atozcash TokenResponseEnums (same as CLI does)
+    const zecAsset = allTokens.value.find(t => t.blockchain === TokenResponseEnums.blockchain.ZEC);
+    if (!token || !zecAsset) throw new Error('Token not found');
 
     const amt = parseFloat(swapAmount.value);
-    const smallest = BigInt(Math.round(amt * (10 ** token.decimals))).toString();
-    const deadline = new Date(Date.now() + 3600000).toISOString();
+    // Use atozcash toSmallestUnit()
+    const amountSmallest = toSmallestUnit(amt, token.decimals);
 
-    const res = await fetch(`${API}/v0/quote`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        dry: false,
-        swapType: 'EXACT_INPUT',
-        slippageTolerance: 100,
-        originAsset: token.assetId,
-        depositType: 'ORIGIN_CHAIN',
-        destinationAsset: zec.assetId,
-        amount: smallest,
-        refundTo: refundAddress.value.trim() || '0x0000000000000000000000000000000000000001',
-        refundType: 'ORIGIN_CHAIN',
-        recipient: props.address,
-        recipientType: 'DESTINATION_CHAIN',
-        deadline,
-      }),
+    // Use atozcash getQuote() — same params as CLI quote command
+    const response = await getQuote({
+      originAssetId: token.assetId,
+      destinationAssetId: zecAsset.assetId,
+      amount: amountSmallest,
+      receiver: props.address,
+      refundTo: refundAddress.value.trim() || '0x0000000000000000000000000000000000000001',
+      slippageTolerance: 100,
+      dry: false,
     });
 
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.message || `Error ${res.status}`);
-    }
-
-    const data = await res.json();
-    currentQuote.value = data.quote;
-    depositAddr.value = data.quote.depositAddress;
+    currentQuote.value = response.quote;
+    depositAddr.value = response.quote.depositAddress;
     view.value = 'swap-deposit';
 
     nextTick(() => {
@@ -497,33 +524,32 @@ async function getSwapQuote() {
         });
       }
     });
-  } catch (e) {
-    swapError.value = e.message || 'Failed to get quote';
+  } catch (err) {
+    swapError.value = err.body ?? err.message ?? 'Failed to get quote';
     snd.play(Snd.SOUNDS.CAUTION);
   }
   quoteLoading.value = false;
 }
 
-// --- Swap: status polling ---
+// --- Swap: status polling using atozcash getStatus() ---
 function confirmPaid() {
   snd.play(Snd.SOUNDS.TAP);
   view.value = 'swap-status';
   swapStatusVal.value = 'PENDING_DEPOSIT';
   swapDetails.value = null;
-  pollStatus();
-  pollTimer = setInterval(pollStatus, 5000);
+  pollStatusOnce();
+  pollTimer = setInterval(pollStatusOnce, 5000);
 }
 
-async function pollStatus() {
+async function pollStatusOnce() {
   try {
-    const res = await fetch(`${API}/v0/status?depositAddress=${encodeURIComponent(depositAddr.value)}`);
-    if (!res.ok) return;
-    const data = await res.json();
-    swapStatusVal.value = data.status;
-    swapDetails.value = data.swapDetails || null;
+    // Use atozcash getStatus() which calls OneClickService.getExecutionStatus()
+    const result = await getStatus(depositAddr.value);
+    swapStatusVal.value = result.status;
+    swapDetails.value = result.swapDetails || null;
 
-    if (data.status === 'SUCCESS') snd.play(Snd.SOUNDS.CELEBRATION);
-    if (['SUCCESS', 'FAILED', 'REFUNDED'].includes(data.status)) {
+    if (result.status === 'SUCCESS') snd.play(Snd.SOUNDS.CELEBRATION);
+    if (['SUCCESS', 'FAILED', 'REFUNDED'].includes(result.status)) {
       clearInterval(pollTimer);
       pollTimer = null;
     }
@@ -541,7 +567,7 @@ function resetSwap() {
   depositAddr.value = '';
   swapStatusVal.value = '';
   swapDetails.value = null;
-  chainTokens.value = [];
+  visibleTokens.value = [];
   copied.value = false;
   view.value = 'picker';
   query.value = '';
@@ -818,7 +844,6 @@ onUnmounted(() => {
 .field-input-light { border-color: rgba(0,0,0,0.15); }
 .field-input-light:focus { border-color: #000; }
 
-/* hide number spinners */
 .field-input[type=number]::-webkit-inner-spin-button,
 .field-input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .field-input[type=number] { -moz-appearance: textfield; }
@@ -932,6 +957,20 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
+.explorer-link {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #000;
+  opacity: 0.3;
+  text-decoration: none;
+  margin-top: 0.5rem;
+  transition: opacity 0.15s;
+}
+.explorer-link:hover { opacity: 0.7; }
+
 /* Swap Status */
 .swap-status {
   display: flex;
@@ -943,7 +982,7 @@ onUnmounted(() => {
 
 .status-icon-wrap { margin-bottom: 1rem; }
 
-.si {
+:deep(.si) {
   width: 48px;
   height: 48px;
   border-radius: 50%;
@@ -951,11 +990,11 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
 }
-.si-ok { background: #000; }
-.si-err { background: #ef4444; }
-.si-spin { background: transparent; }
+:deep(.si-ok) { background: #000; }
+:deep(.si-err) { background: #ef4444; }
+:deep(.si-spin) { background: transparent; }
 
-.spinner-ring {
+:deep(.spinner-ring) {
   width: 40px;
   height: 40px;
   border: 3px solid rgba(0,0,0,0.1);
@@ -978,19 +1017,30 @@ onUnmounted(() => {
   max-width: 280px;
 }
 
-.explorer-link {
-  display: block;
-  font-size: 0.65rem;
+.tx-section {
+  width: 100%;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+.tx-label {
+  font-size: 0.6rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #000;
   opacity: 0.3;
-  text-decoration: none;
-  margin-top: 1rem;
-  transition: opacity 0.15s;
+  margin-bottom: 0.25rem;
 }
-.explorer-link:hover { opacity: 0.7; }
+.tx-hash {
+  display: block;
+  font-family: monospace;
+  font-size: 0.65rem;
+  word-break: break-all;
+  color: #000;
+  text-decoration: none;
+  padding: 0.15rem 0;
+  transition: opacity 0.12s;
+}
+.tx-hash:hover { opacity: 0.6; }
 
 /* Transitions */
 .panel-enter-active { transition: opacity 0.2s ease, transform 0.2s ease; }

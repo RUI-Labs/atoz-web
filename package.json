@@ -14,6 +14,7 @@
   "dependencies": {
     "@astrojs/cloudflare": "^13.1.2",
     "@astrojs/vue": "^6.0.1",
+    "@defuse-protocol/one-click-sdk-typescript": "^0.1.17",
     "@neondatabase/serverless": "^1.0.2",
     "@web3icons/core": "^4.0.51",
     "astro": "^6.0.6",
