@@ -3,7 +3,7 @@ import { getDb } from '../lib/db';
 import PayChains from '../components/PayChains.vue';
 
 const { username } = Astro.params;
-const sql = getDb(Astro.locals.runtime);
+const sql = getDb();
 const rows = await sql`SELECT username, zcash_address FROM users WHERE LOWER(username) = LOWER(${username}) LIMIT 1`;
 
 if (rows.length === 0) {
@@ -22,7 +22,7 @@ const user = rows[0];
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet" />
-    <title>Pay {user.username} — AtoZ.cash</title>
+    <title>Pay {user.username} | AtoZ.cash</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
 
