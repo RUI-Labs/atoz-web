@@ -75,7 +75,8 @@
 			try {
 				const hash = window.location.hash.slice(1);
 				if (hash) {
-					const json = JSON.parse(atob(hash));
+					const bytes = Uint8Array.from(atob(hash), c => c.charCodeAt(0));
+					const json = JSON.parse(new TextDecoder().decode(bytes));
 					if (json.a) {
 						document.getElementById('amount').textContent = json.a;
 						document.getElementById('amount').classList.remove('hidden');
